@@ -1,0 +1,18 @@
+{
+    "files.associations": {
+        "stdbool.h": "c",
+        "typeinfo": "c",
+        "bit": "c",
+        "chrono": "c",
+        "condition_variable": "c",
+        "algorithm": "c",
+        "limits": "c",
+        "mutex": "c",
+        "ranges": "c",
+        "streambuf": "c",
+        "thread": "c",
+        "skynet_monitor.h": "c",
+        "skynet_daemon.h": "c",
+        "stddef.h": "c"
+    }
+}

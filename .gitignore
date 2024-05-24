@@ -10,4 +10,4 @@
 *.so
 *.dSYM
 .DS_Store
-.vscode
+!.vscode

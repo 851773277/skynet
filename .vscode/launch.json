@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) 附加",
+            "name": "skynet_attach",
             "type": "cppdbg",
             "request": "attach",
             "program": "${workspaceFolder}/skynet",
@@ -24,7 +24,7 @@
             ]
         },
         {
-            "name": "(gdb) 启动",
+            "name": "skynet_launch",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/skynet",

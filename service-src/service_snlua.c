@@ -447,11 +447,75 @@ init_cb(struct snlua *l, struct skynet_context *ctx, const char * args, size_t s
 		lua_setfield(L, LUA_REGISTRYINDEX, "memlimit");
 	}
 	lua_pop(L, 1);
-
+	// debug 调用 addLuaState 函数
+	addLuaState(l, optstring(ctx, "frog_debug_ip", NULL), optstring(ctx, "frog_debug_port", NULL));
+	//
 	lua_gc(L, LUA_GCRESTART, 0);
 
 	return 0;
 }
+
+// debug 增加 addLuaState 函数
+void addLuaState(struct snlua *l,const char *debug_ip,const char * debug_port)
+{
+    if (NULL == debug_ip)
+    {
+        return;
+    }
+
+    if (NULL == debug_port)
+    {
+        return;
+    }
+
+    int port = strtol(debug_port, NULL, 10);
+    const char *lua_dofunction = "function snlua_addLuaState()\n"
+        "local dbg = require('frog_debug')\n"
+        "dbg.startDebugServer('%s', %d)\n"
+        "dbg.addLuaState()\n"
+        "end"
+        "";
+
+    char loadstr[200];
+    sprintf(loadstr, lua_dofunction,
+            debug_ip, port);
+
+    int oldn = lua_gettop(l->L);
+    int status = luaL_dostring(l->L, loadstr);
+    if (status != 0)
+    {
+        const char *ret = lua_tostring(l->L, -1);
+        lua_settop(l->L, oldn);
+        skynet_error(l->ctx, "[ERROR] addLuaState lua_tostring error!! err:%s",
+                ret);
+        return;
+    }
+
+    lua_getglobal(l->L, "snlua_addLuaState");
+    if (!lua_isfunction(l->L, -1))
+    {
+        const char *ret = lua_tostring(l->L, -1);
+        lua_settop(l->L, oldn);
+        skynet_error(
+                l->ctx,
+                "[ERROR] addLuaState lua_getglobal addLuaState error!! err:%s",
+                ret);
+        return;
+    }
+
+    status = lua_pcall(l->L, 0, 0, 0);
+    if (status != 0)
+    {
+        const char *ret = lua_tostring(l->L, -1);
+        lua_settop(l->L, oldn);
+        skynet_error(l->ctx,
+                "[ERROR] addLuaState lua_pcall addLuaState error!! err:%s",
+                ret);
+        return;
+    }
+}
+
+//end
 
 static int
 launch_cb(struct skynet_context * context, void *ud, int type, int session, uint32_t source , const void * msg, size_t sz) {

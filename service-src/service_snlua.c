@@ -380,6 +380,102 @@ optstring(struct skynet_context *ctx, const char *key, const char * str) {
 	return ret;
 }
 
+
+static void 
+set_lua_debug(struct snlua *l,const char * param) {
+	if (NULL == l || NULL == l->ctx || NULL == param) {
+        return;
+	}
+	struct skynet_context *ctx = l->ctx;
+	const char *debug_ip = optstring(ctx, "debug_ip", NULL);
+	if (NULL == debug_ip) {
+        return;
+    }
+	const char * debug_port = optstring(ctx, "debug_port", NULL);
+	if (NULL == debug_port) {
+        return;
+    }
+	const char * debug_lib_path = optstring(ctx, "debug_lib_path", NULL);
+	if (NULL == debug_lib_path) {
+        return;
+    }
+	const char * debug_mode = optstring(ctx, "debug_mode", NULL);
+	if (NULL == debug_mode) {
+        return;
+    }
+	const char * debug_svc = optstring(ctx, "debug_svc", NULL);
+	int mode = strtol(debug_mode, NULL, 10);
+	if (1 != mode && 2 != mode && 3 != mode) {
+		return;
+	}
+	if ((1 == mode || 2 == mode) && strcmp(debug_svc, param) != 0) {
+		return;
+	}
+	int port = strtol(debug_port, NULL, 10);
+	
+	char *lua_dofunction = NULL;
+	char func_buf[1024];
+	memset(func_buf, 0, sizeof(func_buf));
+	const char *prefix = "function snlua_set_lua_debug()\n"
+			"local origin_package_path = package.path;\n"
+			"local origin_package_cpath = package.cpath;\n"
+			"package.path = '%s' .. '?.lua;' .. package.path;\n"
+			"package.cpath = '%s' .. '?.so;' .. package.cpath;\n"
+			"";
+	const char *suffix = 
+			"package.path = origin_package_path;\n"
+			"package.cpath = origin_package_cpath;\n"
+			"end";
+	const char *middle;
+	if (1 == mode) {//LuaPanda--æš‚ç”¨äºŽå¯åŠ¨è°ƒè¯•
+		middle = "require('socket.core');\n"
+                 "require('LuaPanda').start('%s',%d);\n";
+		 skynet_error(l->ctx, "luapanda debug_mode start, debug_svc is %s",debug_svc);
+	} else if (2 == mode) {// EmmyLua--æš‚ç”¨äºŽå¯åŠ¨è°ƒè¯•
+		middle = "local dbg = require('emmy_core');\n"
+                 "dbg.tcpConnect('%s', %d)\n";
+		skynet_error(l->ctx, "emmylua debug_mode start, debug_svc is %s",debug_svc);
+	} else {// frog_debug--æš‚ç”¨äºŽé™„åŠ è°ƒè¯•
+		middle = "local dbg = require('frog_debug')\n"
+                 "dbg.startDebugServer('%s', %d)\n"
+                 "dbg.addLuaState()\n";
+	}
+	snprintf(func_buf, sizeof(func_buf), "%s%s%s", prefix, middle, suffix);
+	lua_dofunction = func_buf;
+	if (lua_dofunction == NULL) {
+		return;
+	}
+
+    char loadstr[1024];
+	memset(loadstr, 0, sizeof(loadstr));
+    sprintf(loadstr, lua_dofunction,debug_lib_path, debug_lib_path,debug_ip, port);
+
+    int oldn = lua_gettop(l->L);
+    int status = luaL_dostring(l->L, loadstr);
+    if (status != 0) {
+        const char *ret = lua_tostring(l->L, -1);
+        lua_settop(l->L, oldn);
+        skynet_error(l->ctx, "load set_lua_debug func error!! err:%s",ret);
+        return;
+    }
+
+    lua_getglobal(l->L, "snlua_set_lua_debug");
+    if (!lua_isfunction(l->L, -1)) {
+        const char *ret = lua_tostring(l->L, -1);
+        lua_settop(l->L, oldn);
+        skynet_error(l->ctx,"set_lua_debug is not func!! err:%s",ret);
+        return;
+    }
+
+    status = lua_pcall(l->L, 0, 0, 0);
+    if (status != 0) {
+        const char *ret = lua_tostring(l->L, -1);
+        lua_settop(l->L, oldn);
+        skynet_error(l->ctx,"set_lua_debug lua_pcall error!! err:%s",ret);
+        return;
+    }
+}
+
 static int
 init_cb(struct snlua *l, struct skynet_context *ctx, const char * args, size_t sz) {
 	lua_State *L = l->L;
@@ -388,6 +484,7 @@ init_cb(struct snlua *l, struct skynet_context *ctx, const char * args, size_t s
 	lua_pushboolean(L, 1);  /* signal for libraries to ignore env. vars. */
 	lua_setfield(L, LUA_REGISTRYINDEX, "LUA_NOENV");
 	luaL_openlibs(L);
+	set_lua_debug(l, args);
 	luaL_requiref(L, "skynet.profile", init_profile, 0);
 
 	int profile_lib = lua_gettop(L);
@@ -447,75 +544,10 @@ init_cb(struct snlua *l, struct skynet_context *ctx, const char * args, size_t s
 		lua_setfield(L, LUA_REGISTRYINDEX, "memlimit");
 	}
 	lua_pop(L, 1);
-	// debug µ÷ÓÃ addLuaState º¯Êý
-	addLuaState(l, optstring(ctx, "frog_debug_ip", NULL), optstring(ctx, "frog_debug_port", NULL));
-	//
 	lua_gc(L, LUA_GCRESTART, 0);
 
 	return 0;
 }
-
-// debug Ôö¼Ó addLuaState º¯Êý
-void addLuaState(struct snlua *l,const char *debug_ip,const char * debug_port)
-{
-    if (NULL == debug_ip)
-    {
-        return;
-    }
-
-    if (NULL == debug_port)
-    {
-        return;
-    }
-
-    int port = strtol(debug_port, NULL, 10);
-    const char *lua_dofunction = "function snlua_addLuaState()\n"
-        "local dbg = require('frog_debug')\n"
-        "dbg.startDebugServer('%s', %d)\n"
-        "dbg.addLuaState()\n"
-        "end"
-        "";
-
-    char loadstr[200];
-    sprintf(loadstr, lua_dofunction,
-            debug_ip, port);
-
-    int oldn = lua_gettop(l->L);
-    int status = luaL_dostring(l->L, loadstr);
-    if (status != 0)
-    {
-        const char *ret = lua_tostring(l->L, -1);
-        lua_settop(l->L, oldn);
-        skynet_error(l->ctx, "[ERROR] addLuaState lua_tostring error!! err:%s",
-                ret);
-        return;
-    }
-
-    lua_getglobal(l->L, "snlua_addLuaState");
-    if (!lua_isfunction(l->L, -1))
-    {
-        const char *ret = lua_tostring(l->L, -1);
-        lua_settop(l->L, oldn);
-        skynet_error(
-                l->ctx,
-                "[ERROR] addLuaState lua_getglobal addLuaState error!! err:%s",
-                ret);
-        return;
-    }
-
-    status = lua_pcall(l->L, 0, 0, 0);
-    if (status != 0)
-    {
-        const char *ret = lua_tostring(l->L, -1);
-        lua_settop(l->L, oldn);
-        skynet_error(l->ctx,
-                "[ERROR] addLuaState lua_pcall addLuaState error!! err:%s",
-                ret);
-        return;
-    }
-}
-
-//end
 
 static int
 launch_cb(struct skynet_context * context, void *ud, int type, int session, uint32_t source , const void * msg, size_t sz) {
